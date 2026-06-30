@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shift Ledger — Attendance Dashboard</title>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import {
+    getFirestore, collection, doc, setDoc, getDocs, query,
+    orderBy, limit, onSnapshot, writeBatch, deleteDoc
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBDUq16Up3XopcBwPk8UQ2t5wgTlDMXKYg",
+    authDomain: "attendance-emiza.firebaseapp.com",
+    databaseURL: "https://attendance-emiza-default-rtdb.firebaseio.com",
+    projectId: "attendance-emiza",
+    storageBucket: "attendance-emiza.firebasestorage.app",
+    messagingSenderId: "84536914545",
+    appId: "1:84536914545:web:759eaeb06295808a4ea1d0",
+    measurementId: "G-YF8PFX5WBB"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.__fb = {
+    db, collection, doc, setDoc, getDocs, query, orderBy, limit, onSnapshot, writeBatch, deleteDoc
+  };
+  window.__fbReady = true;
+  window.dispatchEvent(new Event('fbready'));
+</script>
+<style>
+:root{
+  --ink:#0d1117; --panel:#12181f; --panel2:#161d26; --line:#222b35;
+  --paper:#e8e3d8; --paper-dim:#aba38f;
+  --amber:#e0a958; --amber-dim:#8a6c3a;
+  --day:#e0a958; --night:#5b8ac9;
+  --good:#5fb88f; --warn:#d9714e; --mono:'JetBrains Mono',monospace;
+  --serif:'Fraunces',serif; --sans:'Inter',sans-serif;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+@font-face{font-family:'Fraunces';src:local('Georgia');}
+body{
+  background:var(--ink); color:var(--paper);
+  font-family:var(--sans); min-height:100vh;
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(224,169,88,.05), transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(91,138,201,.05), transparent 40%);
+}
+::selection{background:var(--amber); color:var(--ink);}
+
+/* ===== HEADER ===== */
+header{
+  border-bottom:1px solid var(--line); padding:22px 32px;
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;
+  position:sticky; top:0; background:rgba(13,17,23,.92); backdrop-filter:blur(10px); z-index:50;
+}
+.brand{display:flex; align-items:baseline; gap:12px;}
+.brand .mark{
+  font-family:var(--serif); font-size:1.6rem; font-weight:600; letter-spacing:-.02em;
+  background:linear-gradient(135deg,var(--amber),#f0c785); -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.brand .sub{font-size:.68rem; letter-spacing:.16em; text-transform:uppercase; color:var(--paper-dim); font-family:var(--mono);}
+.hdr-right{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+.live-dot{width:7px; height:7px; border-radius:50%; background:var(--good); display:inline-block; box-shadow:0 0 0 0 rgba(95,184,143,.6); animation:pulse 2s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(95,184,143,.55);}70%{box-shadow:0 0 0 7px rgba(95,184,143,0);}100%{box-shadow:0 0 0 0 rgba(95,184,143,0);}}
+.live-pill{display:flex; align-items:center; gap:7px; font-family:var(--mono); font-size:.72rem; color:var(--paper-dim); border:1px solid var(--line); padding:5px 12px; border-radius:20px;}
+.clk{font-family:var(--mono); font-size:.78rem; color:var(--paper-dim);}
+
+/* ===== NAV TABS ===== */
+nav{display:flex; gap:2px; padding:0 32px; border-bottom:1px solid var(--line); background:rgba(0,0,0,.15);}
+nav button{
+  background:none; border:none; color:var(--paper-dim); font-family:var(--sans); font-size:.84rem; font-weight:500;
+  padding:14px 18px; cursor:pointer; border-bottom:2px solid transparent; transition:.15s;
+}
+nav button:hover{color:var(--paper);}
+nav button.on{color:var(--amber); border-bottom-color:var(--amber);}
+
+main{max-width:1400px; margin:0 auto; padding:30px 32px 70px;}
+.page{display:none;}
+.page.on{display:block; animation:fadein .3s ease;}
+@keyframes fadein{from{opacity:0; transform:translateY(6px);}to{opacity:1; transform:translateY(0);}}
+
+/* ===== STAT STRIP ===== */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:28px;}
+.stat{background:var(--panel); padding:20px 22px;}
+.stat .lbl{font-family:var(--mono); font-size:.66rem; letter-spacing:.1em; text-transform:uppercase; color:var(--paper-dim); margin-bottom:8px;}
+.stat .val{font-family:var(--serif); font-size:2.1rem; font-weight:600; line-height:1;}
+.stat.day .val{color:var(--day);}
+.stat.night .val{color:var(--night);}
+.stat.warn .val{color:var(--warn);}
+.stat.good .val{color:var(--good);}
+
+/* ===== PANEL ===== */
+.panel{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px; margin-bottom:24px;}
+.panel-h{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px;}
+.panel-h h2{font-family:var(--serif); font-size:1.15rem; font-weight:600;}
+.panel-h .eyebrow{font-family:var(--mono); font-size:.66rem; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); margin-bottom:3px; display:block;}
+
+/* ===== UPLOAD ZONES ===== */
+.upload-grid{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+@media(max-width:820px){.upload-grid{grid-template-columns:1fr;}}
+.dz{
+  border:1.5px dashed var(--line); border-radius:12px; padding:28px 20px; text-align:center; cursor:pointer;
+  transition:.2s; background:var(--panel2); position:relative;
+}
+.dz:hover, .dz.drag{border-color:var(--amber); background:rgba(224,169,88,.04);}
+.dz input{display:none;}
+.dz .ico{font-size:1.8rem; margin-bottom:10px; opacity:.8;}
+.dz .ttl{font-weight:600; font-size:.92rem; margin-bottom:4px;}
+.dz .desc{font-size:.74rem; color:var(--paper-dim); line-height:1.5;}
+.dz .file-ok{margin-top:12px; font-family:var(--mono); font-size:.72rem; color:var(--good); display:none;}
+
+/* ===== BUTTONS ===== */
+.btn{
+  font-family:var(--sans); font-size:.82rem; font-weight:600; padding:9px 18px; border-radius:8px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--paper); cursor:pointer; transition:.15s;
+  display:inline-flex; align-items:center; gap:6px;
+}
+.btn:hover{border-color:var(--amber); color:var(--amber);}
+.btn.pri{background:var(--amber); border-color:var(--amber); color:var(--ink);}
+.btn.pri:hover{background:#f0c785; color:var(--ink);}
+.btn.dgr{border-color:var(--warn); color:var(--warn);}
+.btn.dgr:hover{background:var(--warn); color:var(--ink);}
+.btn:disabled{opacity:.4; cursor:not-allowed;}
+.btn-row{display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;}
+
+/* ===== FORM ===== */
+.frow{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;}
+.fld{display:flex; flex-direction:column; gap:5px;}
+.fld label{font-family:var(--mono); font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; color:var(--paper-dim);}
+.fld select, .fld input{
+  background:var(--panel2); border:1px solid var(--line); color:var(--paper); padding:8px 12px; border-radius:8px;
+  font-family:var(--sans); font-size:.82rem; min-width:140px;
+}
+.fld select:focus, .fld input:focus{outline:none; border-color:var(--amber);}
+
+/* ===== TABLE ===== */
+.tbl-wrap{overflow-x:auto; border-radius:10px; border:1px solid var(--line);}
+table{width:100%; border-collapse:collapse; font-size:.82rem;}
+thead{background:var(--panel2);}
+th{
+  text-align:left; padding:11px 14px; font-family:var(--mono); font-size:.66rem; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--paper-dim); border-bottom:1px solid var(--line); white-space:nowrap;
+}
+td{padding:11px 14px; border-bottom:1px solid rgba(34,43,53,.6); white-space:nowrap;}
+tbody tr:hover{background:rgba(224,169,88,.04);}
+tbody tr:last-child td{border-bottom:none;}
+.id-cell{font-family:var(--mono); color:var(--amber); font-size:.78rem;}
+.shift-pill{
+  display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:20px; font-size:.7rem; font-weight:600;
+}
+.shift-pill.day{background:rgba(224,169,88,.14); color:var(--day);}
+.shift-pill.night{background:rgba(91,138,201,.14); color:var(--night);}
+.shift-pill.single{background:rgba(217,113,78,.14); color:var(--warn);}
+.shift-pill.unk{background:rgba(255,255,255,.06); color:var(--paper-dim);}
+.dept-chip{background:rgba(255,255,255,.05); padding:2px 9px; border-radius:5px; font-size:.74rem;}
+.mono{font-family:var(--mono); font-size:.78rem;}
+.muted{color:var(--paper-dim);}
+.empty-state{padding:60px 20px; text-align:center; color:var(--paper-dim);}
+.empty-state .big{font-family:var(--serif); font-size:1.3rem; color:var(--paper); margin-bottom:8px;}
+
+/* ===== TOAST ===== */
+#toast-box{position:fixed; bottom:24px; right:24px; z-index:999; display:flex; flex-direction:column; gap:8px;}
+.toast{
+  background:var(--panel2); border:1px solid var(--line); border-left:3px solid var(--good);
+  padding:12px 18px; border-radius:8px; font-size:.82rem; max-width:340px; box-shadow:0 8px 24px rgba(0,0,0,.4);
+  animation:slidein .25s ease;
+}
+.toast.err{border-left-color:var(--warn);}
+@keyframes slidein{from{transform:translateX(30px); opacity:0;}to{transform:translateX(0); opacity:1;}}
+
+/* ===== PROGRESS ===== */
+.progress-line{height:3px; background:var(--line); border-radius:2px; overflow:hidden; margin-top:14px; display:none;}
+.progress-line .bar{height:100%; background:var(--amber); width:0%; transition:width .2s;}
+
+/* ===== LOGIC NOTE ===== */
+.logic-note{
+  display:flex; gap:14px; flex-wrap:wrap; margin-top:18px; padding-top:18px; border-top:1px dashed var(--line);
+}
+.logic-card{flex:1; min-width:220px; padding:14px 16px; border-radius:10px; background:var(--panel2); border:1px solid var(--line);}
+.logic-card .tag{font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; margin-bottom:6px;}
+.logic-card.day .tag{color:var(--day);}
+.logic-card.night .tag{color:var(--night);}
+.logic-card p{font-size:.78rem; color:var(--paper-dim); line-height:1.5;}
+
+/* footer */
+footer{text-align:center; padding:30px; color:var(--paper-dim); font-size:.72rem; font-family:var(--mono);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="mark">Shift Ledger</span>
+    <span class="sub">Attendance Engine</span>
+  </div>
+  <div class="hdr-right">
+    <span class="live-pill"><span class="live-dot"></span> Firestore Live</span>
+    <span class="clk" id="clk">--:--:--</span>
+  </div>
+</header>
+
+<nav>
+  <button class="on" data-pg="dash" onclick="showPg('dash')">Dashboard</button>
+  <button data-pg="upload" onclick="showPg('upload')">Upload Data</button>
+  <button data-pg="records" onclick="showPg('records')">All Records</button>
+</nav>
+
+<main>
+
+  <!-- ============ DASHBOARD PAGE ============ -->
+  <div class="page on" id="pg-dash">
+    <div class="stats">
+      <div class="stat"><span class="lbl">Total Employees</span><span class="val" id="s-total">0</span></div>
+      <div class="stat day"><span class="lbl">Day Shift</span><span class="val" id="s-day">0</span></div>
+      <div class="stat night"><span class="lbl">Night Shift</span><span class="val" id="s-night">0</span></div>
+      <div class="stat warn"><span class="lbl">Single Punch</span><span class="val" id="s-single">0</span></div>
+      <div class="stat good"><span class="lbl">Last Upload</span><span class="val mono" id="s-last" style="font-size:1rem">—</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h">
+        <div>
+          <span class="eyebrow">Filter</span>
+          <h2>Today's Shift Summary</h2>
+        </div>
+        <div class="btn-row" style="margin:0">
+          <button class="btn" onclick="exportCSV()">↓ Export CSV</button>
+        </div>
+      </div>
+
+      <div class="frow" style="margin-bottom:18px">
+        <div class="fld">
+          <label>Date</label>
+          <input type="date" id="f-date">
+        </div>
+        <div class="fld">
+          <label>Shift</label>
+          <select id="f-shift">
+            <option value="">All</option>
+            <option value="Day">Day</option>
+            <option value="Night">Night</option>
+            <option value="Single">Single Punch</option>
+            <option value="Unknown">Unknown</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>Department</label>
+          <select id="f-dept"><option value="">All</option></select>
+        </div>
+        <div class="fld">
+          <label>Search ID / Name</label>
+          <input type="text" id="f-search" placeholder="fkn-0001 ya naam...">
+        </div>
+        <button class="btn pri" onclick="applyFilters()">Filter</button>
+        <button class="btn" onclick="clearFilters()">Clear</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Emp ID</th><th>Name</th><th>Department</th><th>Designation</th>
+              <th>Date</th><th>First Punch</th><th>Last Punch</th><th>Shift</th><th>Punches</th>
+            </tr>
+          </thead>
+          <tbody id="dash-tbody"><tr><td colspan="10" class="empty-state">Data load ho rahi hai...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h">
+        <div><span class="eyebrow">Reference</span><h2>Shift Classification Logic</h2></div>
+      </div>
+      <div class="logic-note" style="margin-top:0; padding-top:0; border:none">
+        <div class="logic-card day">
+          <div class="tag">☀ Day Shift</div>
+          <p>First punch <b>7:00 AM</b> ke baad, aur last punch <b>same din 12:00 AM</b> (midnight) se pehle ho.</p>
+        </div>
+        <div class="logic-card night">
+          <div class="tag">🌙 Night Shift</div>
+          <p>First punch <b>7:30 PM</b> ke baad, aur last punch <b>agle din 9:00 AM</b> se pehle ho.</p>
+        </div>
+        <div class="logic-card" style="border-color:var(--warn)">
+          <div class="tag" style="color:var(--warn)">⚠ Single Punch</div>
+          <p>Sirf ek hi punch mila — first aur last punch same hai, shift confirm nahi ho saki.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ UPLOAD PAGE ============ -->
+  <div class="page" id="pg-upload">
+    <div class="panel">
+      <div class="panel-h">
+        <div><span class="eyebrow">Step 1</span><h2>Raw Punch Log Upload</h2></div>
+      </div>
+      <p class="muted" style="font-size:.82rem; margin-bottom:16px; line-height:1.6">
+        CSV jisme har row ek punch event hai — columns: <span class="mono" style="color:var(--amber)">Employee Code, Employee Name, Log Time</span> (aur department/shift columns ignore honge, kyunki naya department Tracker se VLOOKUP hoga).
+      </p>
+      <div class="upload-grid">
+        <label class="dz" id="dz-log" for="file-log">
+          <input type="file" id="file-log" accept=".csv">
+          <div class="ico">📋</div>
+          <div class="ttl">Punch Log CSV</div>
+          <div class="desc">Click ya drag karo — Attendance_Log type file</div>
+          <div class="file-ok" id="ok-log"></div>
+        </label>
+        <label class="dz" id="dz-tracker" for="file-tracker">
+          <input type="file" id="file-tracker" accept=".csv">
+          <div class="ico">🗂️</div>
+          <div class="ttl">Department Tracker CSV</div>
+          <div class="desc">ID, Name, Department, Designation columns chahiye</div>
+          <div class="file-ok" id="ok-tracker"></div>
+        </label>
+      </div>
+      <div class="progress-line" id="prog"><div class="bar" id="prog-bar"></div></div>
+      <div class="btn-row">
+        <button class="btn pri" id="btn-process" onclick="processAndUpload()" disabled>Process &amp; Save to Firestore</button>
+        <button class="btn" onclick="loadTrackerOnly()" id="btn-tracker-only" disabled>Sirf Tracker Update Karo</button>
+      </div>
+      <div id="upload-log" style="margin-top:18px; font-family:var(--mono); font-size:.76rem; color:var(--paper-dim); max-height:180px; overflow-y:auto"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-h">
+        <div><span class="eyebrow">Danger Zone</span><h2>Data Management</h2></div>
+      </div>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn dgr" onclick="clearAllData()">🗑 Clear All Attendance Records</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RECORDS PAGE ============ -->
+  <div class="page" id="pg-records">
+    <div class="panel">
+      <div class="panel-h">
+        <div><span class="eyebrow">Complete Log</span><h2>All Attendance Records</h2></div>
+        <button class="btn" onclick="exportCSV(true)">↓ Export All</button>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>Emp ID</th><th>Name</th><th>Department</th><th>Date</th><th>First</th><th>Last</th><th>Shift</th><th>Punches</th></tr>
+          </thead>
+          <tbody id="records-tbody"><tr><td colspan="9" class="empty-state">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>Shift Ledger · Firestore-backed · Built for Farukhnagar Warehouse Ops</footer>
+<div id="toast-box"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let trackerMap = {};   // empId -> {name, dept, designation}
+let allRecords = [];   // computed attendance records
+let rawLogRows = [];   // parsed CSV rows from punch log
+let parsedTracker = null;
+let dashUnsub = null;
+
+// ══════════════════════════════════════════════
+// CLOCK
+// ══════════════════════════════════════════════
+setInterval(()=>{
+  document.getElementById('clk').textContent = new Date().toLocaleTimeString('hi-IN',{hour12:false});
+}, 1000);
+
+// ══════════════════════════════════════════════
+// NAV
+// ══════════════════════════════════════════════
+function showPg(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('on'));
+  document.getElementById('pg-'+id).classList.add('on');
+  document.querySelector('nav button[data-pg="'+id+'"]').classList.add('on');
+}
+
+// ══════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════
+function toast(msg, type){
+  const box = document.getElementById('toast-box');
+  const t = document.createElement('div');
+  t.className = 'toast' + (type==='err' ? ' err' : '');
+  t.textContent = msg;
+  box.appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='.3s'; setTimeout(()=>t.remove(),300); }, 3500);
+}
+
+// ══════════════════════════════════════════════
+// CSV PARSER (handles quoted fields with commas)
+// ══════════════════════════════════════════════
+function parseCSV(text){
+  text = text.replace(/^\uFEFF/, '').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const lines = text.split('\n').filter(l => l.trim().length);
+  if (!lines.length) return {headers:[], rows:[]};
+
+  function splitLine(line){
+    const out = []; let cur=''; let inQ=false;
+    for (let i=0;i<line.length;i++){
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i+1] === '"') { cur+='"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === ',' && !inQ) {
+        out.push(cur); cur='';
+      } else cur += ch;
+    }
+    out.push(cur);
+    return out.map(c=>c.trim());
+  }
+
+  const headers = splitLine(lines[0]).map(h=>h.trim());
+  const rows = lines.slice(1).map(l => {
+    const cells = splitLine(l);
+    const obj = {};
+    headers.forEach((h,i)=> obj[h] = cells[i] !== undefined ? cells[i] : '');
+    return obj;
+  });
+  return {headers, rows};
+}
+
+function findCol(headers, keywords){
+  const lower = headers.map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,''));
+  for (const kw of keywords) {
+    const idx = lower.findIndex(h => h.includes(kw));
+    if (idx >= 0) return headers[idx];
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════
+// FILE UPLOAD HANDLERS
+// ══════════════════════════════════════════════
+let logFileText = null, trackerFileText = null;
+
+document.getElementById('file-log').addEventListener('change', e=>{
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    logFileText = ev.target.result;
+    document.getElementById('ok-log').style.display='block';
+    document.getElementById('ok-log').textContent = '✓ ' + f.name;
+    checkReady();
+  };
+  r.readAsText(f, 'UTF-8');
+});
+
+document.getElementById('file-tracker').addEventListener('change', e=>{
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    trackerFileText = ev.target.result;
+    document.getElementById('ok-tracker').style.display='block';
+    document.getElementById('ok-tracker').textContent = '✓ ' + f.name;
+    document.getElementById('btn-tracker-only').disabled = false;
+    checkReady();
+  };
+  r.readAsText(f, 'UTF-8');
+});
+
+function checkReady(){
+  document.getElementById('btn-process').disabled = !(logFileText);
+}
+
+// ══════════════════════════════════════════════
+// LOG TIME PARSING — "30 Jun 2026, 16:40:03" → Date object
+// ══════════════════════════════════════════════
+const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseLogTime(str){
+  if (!str) return null;
+  str = str.trim();
+  // Format: "30 Jun 2026, 16:40:03"
+  let m = str.match(/(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4}),?\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  if (m) {
+    const mon = MONTHS[m[2].toLowerCase().slice(0,3)];
+    if (mon === undefined) return null;
+    return new Date(parseInt(m[3]), mon, parseInt(m[1]), parseInt(m[4]), parseInt(m[5]), parseInt(m[6]));
+  }
+  // Fallback: try native parse
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+function fmtTime(d){
+  if (!d) return '—';
+  return d.toLocaleTimeString('hi-IN',{hour12:true,hour:'2-digit',minute:'2-digit'});
+}
+function fmtDate(d){
+  if (!d) return '—';
+  const yyyy=d.getFullYear(), mm=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+  return yyyy+'-'+mm+'-'+dd;
+}
+
+// ══════════════════════════════════════════════
+// SHIFT CLASSIFICATION LOGIC
+// Day:   first punch >= 7:00 AM   AND last punch < midnight (same day)
+// Night: first punch >= 7:30 PM  AND last punch < 9:00 AM (next day)
+// ══════════════════════════════════════════════
+function classifyShift(firstPunch, lastPunch){
+  if (!firstPunch || !lastPunch) return 'Unknown';
+  if (firstPunch.getTime() === lastPunch.getTime()) return 'Single';
+
+  const fH = firstPunch.getHours() + firstPunch.getMinutes()/60;
+  const lDate = lastPunch;
+  const fDate = firstPunch;
+
+  // DAY: first >= 7:00, last < 24:00 same calendar day as first
+  const sameDay = fDate.getFullYear()===lDate.getFullYear() && fDate.getMonth()===lDate.getMonth() && fDate.getDate()===lDate.getDate();
+  if (fH >= 7.0 && sameDay) {
+    return 'Day';
+  }
+
+  // NIGHT: first >= 19:30 (7:30PM), last < 9:00AM next day
+  const nextDay = new Date(fDate); nextDay.setDate(nextDay.getDate()+1);
+  const isNextDay = lDate.getFullYear()===nextDay.getFullYear() && lDate.getMonth()===nextDay.getMonth() && lDate.getDate()===nextDay.getDate();
+  const lH = lDate.getHours() + lDate.getMinutes()/60;
+  if (fH >= 19.5 && isNextDay && lH < 9.0) {
+    return 'Night';
+  }
+  // Night also valid if last punch same day but very early (before 9am) and first was prior evening — handled above via nextDay check
+  // Edge: shift starts evening, ends same day before 9am impossible logically, skip
+
+  return 'Unknown';
+}
+
+// ══════════════════════════════════════════════
+// PROCESS: Group punches by EmpID + "shift-date" (the date of FIRST punch)
+// ══════════════════════════════════════════════
+function computeAttendance(rows, headers){
+  const idCol = findCol(headers, ['employeecode','empcode','empid','employeeid']);
+  const nameCol = findCol(headers, ['employeename','empname','name']);
+  const timeCol = findCol(headers, ['logtime','punchtime','time']);
+
+  if (!idCol || !timeCol) {
+    throw new Error('CSV mein Employee Code ya Log Time column nahi mila. Headers: ' + headers.join(', '));
+  }
+
+  // Group all punches by empId
+  const byEmp = {};
+  rows.forEach(r => {
+    const empId = (r[idCol]||'').trim().toUpperCase();
+    if (!empId) return;
+    const t = parseLogTime(r[timeCol]);
+    if (!t) return;
+    if (!byEmp[empId]) byEmp[empId] = { name: r[nameCol]||'', punches: [] };
+    byEmp[empId].punches.push(t);
+    if (!byEmp[empId].name && r[nameCol]) byEmp[empId].name = r[nameCol];
+  });
+
+  const results = [];
+  Object.keys(byEmp).forEach(empId => {
+    const data = byEmp[empId];
+    const punches = data.punches.sort((a,b)=>a-b);
+    const first = punches[0];
+    const last = punches[punches.length-1];
+    const shift = classifyShift(first, last);
+    const trackerInfo = trackerMap[empId] || {};
+
+    results.push({
+      empId,
+      name: trackerInfo.name || data.name || empId,
+      dept: trackerInfo.dept || 'Unknown',
+      designation: trackerInfo.designation || '',
+      date: fmtDate(first),
+      firstPunch: first,
+      lastPunch: last,
+      firstPunchStr: first.toISOString(),
+      lastPunchStr: last.toISOString(),
+      shift,
+      punchCount: punches.length,
+      updatedAt: new Date().toISOString()
+    });
+  });
+
+  return results;
+}
+
+// ══════════════════════════════════════════════
+// TRACKER PARSING
+// ══════════════════════════════════════════════
+function parseTrackerCSV(text){
+  const {headers, rows} = parseCSV(text);
+  const idCol = findCol(headers, ['id','empid','employeecode','empcode']);
+  const nameCol = findCol(headers, ['name']);
+  const deptCol = findCol(headers, ['department','dept']);
+  const desigCol = findCol(headers, ['designation','desig']);
+
+  if (!idCol) throw new Error('Tracker CSV mein ID column nahi mila');
+
+  const map = {};
+  rows.forEach(r => {
+    const id = (r[idCol]||'').trim().toUpperCase();
+    if (!id) return;
+    map[id] = {
+      name: (r[nameCol]||'').trim(),
+      dept: (r[deptCol]||'').trim() || 'Unknown',
+      designation: (r[desigCol]||'').trim()
+    };
+  });
+  return map;
+}
+
+// ══════════════════════════════════════════════
+// PROCESS & UPLOAD TO FIRESTORE
+// ══════════════════════════════════════════════
+async function processAndUpload(){
+  const logEl = document.getElementById('upload-log');
+  logEl.innerHTML = '';
+  function log(msg){ logEl.innerHTML += '<div>'+msg+'</div>'; logEl.scrollTop = logEl.scrollHeight; }
+
+  if (!logFileText) { toast('Pehle Punch Log CSV upload karo','err'); return; }
+
+  document.getElementById('btn-process').disabled = true;
+  document.getElementById('prog').style.display = 'block';
+  const bar = document.getElementById('prog-bar');
+  bar.style.width = '5%';
+
+  try {
+    // Step 1: Parse tracker if provided
+    if (trackerFileText) {
+      log('🗂️ Department Tracker parse ho raha hai...');
+      trackerMap = parseTrackerCSV(trackerFileText);
+      log('✓ ' + Object.keys(trackerMap).length + ' employees tracker mein mile');
+      bar.style.width = '20%';
+    } else if (Object.keys(trackerMap).length === 0) {
+      log('⚠ Koi Tracker upload nahi hui — departments "Unknown" rahenge');
+    }
+
+    // Step 2: Parse log CSV
+    log('📋 Punch Log parse ho raha hai...');
+    const {headers, rows} = parseCSV(logFileText);
+    log('✓ ' + rows.length + ' raw punch rows mile');
+    bar.style.width = '40%';
+
+    // Step 3: Compute attendance
+    log('⚙ Shift calculate ho raha hai (Day/Night logic)...');
+    const computed = computeAttendance(rows, headers);
+    log('✓ ' + computed.length + ' unique employees processed');
+    bar.style.width = '60%';
+
+    const dayCount = computed.filter(r=>r.shift==='Day').length;
+    const nightCount = computed.filter(r=>r.shift==='Night').length;
+    const singleCount = computed.filter(r=>r.shift==='Single').length;
+    log('  ☀ Day: '+dayCount+' | 🌙 Night: '+nightCount+' | ⚠ Single: '+singleCount);
+
+    // Step 4: Upload to Firestore (batched)
+    log('☁ Firestore mein save ho raha hai...');
+    const {db, collection, doc, writeBatch} = window.__fb;
+    const colRef = collection(db, 'attendance');
+
+    const BATCH_SIZE = 400;
+    for (let i=0; i<computed.length; i+=BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = computed.slice(i, i+BATCH_SIZE);
+      chunk.forEach(rec => {
+        const docId = rec.empId + '_' + rec.date;
+        batch.set(doc(colRef, docId), rec, {merge:true});
+      });
+      await batch.commit();
+      bar.style.width = (60 + (i/computed.length)*35) + '%';
+    }
+
+    // Step 5: Save tracker to Firestore too (so it persists)
+    if (trackerFileText) {
+      log('☁ Department Tracker bhi Firestore mein save ho raha hai...');
+      const trackerCol = collection(db, 'tracker');
+      const ids = Object.keys(trackerMap);
+      for (let i=0; i<ids.length; i+=BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = ids.slice(i, i+BATCH_SIZE);
+        chunk.forEach(id => batch.set(doc(trackerCol, id), {empId:id, ...trackerMap[id]}, {merge:true}));
+        await batch.commit();
+      }
+      log('✓ Tracker saved');
+    }
+
+    bar.style.width = '100%';
+    log('✅ Sab kuch successfully save ho gaya!');
+    toast('✅ '+computed.length+' records Firestore mein save ho gaye!', 'ok');
+
+    localStorage.setItem('lastUpload', new Date().toISOString());
+    setTimeout(()=>{ document.getElementById('prog').style.display='none'; bar.style.width='0%'; }, 1500);
+
+  } catch(e) {
+    log('❌ Error: ' + e.message);
+    toast('Error: ' + e.message, 'err');
+  } finally {
+    document.getElementById('btn-process').disabled = false;
+  }
+}
+
+// ══════════════════════════════════════════════
+// LOAD TRACKER ONLY (without processing log)
+// ══════════════════════════════════════════════
+async function loadTrackerOnly(){
+  if (!trackerFileText) { toast('Tracker CSV upload karo pehle','err'); return; }
+  try {
+    trackerMap = parseTrackerCSV(trackerFileText);
+    const {db, collection, doc, writeBatch} = window.__fb;
+    const trackerCol = collection(db, 'tracker');
+    const ids = Object.keys(trackerMap);
+    const BATCH_SIZE = 400;
+    for (let i=0; i<ids.length; i+=BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const chunk = ids.slice(i, i+BATCH_SIZE);
+      chunk.forEach(id => batch.set(doc(trackerCol, id), {empId:id, ...trackerMap[id]}, {merge:true}));
+      await batch.commit();
+    }
+    toast('✅ Tracker updated — '+ids.length+' employees', 'ok');
+  } catch(e) {
+    toast('Error: '+e.message, 'err');
+  }
+}
+
+// ══════════════════════════════════════════════
+// CLEAR ALL DATA
+// ══════════════════════════════════════════════
+async function clearAllData(){
+  if (!confirm('Sab attendance records Firestore se delete karna chahte ho? Yeh undo nahi ho sakta!')) return;
+  try {
+    const {db, collection, getDocs, deleteDoc, doc} = window.__fb;
+    const snap = await getDocs(collection(db,'attendance'));
+    let count = 0;
+    for (const d of snap.docs) { await deleteDoc(doc(db,'attendance',d.id)); count++; }
+    toast('✅ '+count+' records delete ho gaye', 'ok');
+  } catch(e) { toast('Error: '+e.message, 'err'); }
+}
+
+// ══════════════════════════════════════════════
+// LOAD TRACKER FROM FIRESTORE (on page load)
+// ══════════════════════════════════════════════
+async function loadTrackerFromFirestore(){
+  try {
+    const {db, collection, getDocs} = window.__fb;
+    const snap = await getDocs(collection(db, 'tracker'));
+    snap.forEach(d => {
+      const data = d.data();
+      trackerMap[d.id] = { name: data.name||'', dept: data.dept||'Unknown', designation: data.designation||'' };
+    });
+  } catch(e) { console.warn('Tracker load failed', e); }
+}
+
+// ══════════════════════════════════════════════
+// LIVE DASHBOARD — onSnapshot listener
+// ══════════════════════════════════════════════
+function startLiveDashboard(){
+  const {db, collection, onSnapshot, query, orderBy} = window.__fb;
+  const colRef = collection(db, 'attendance');
+  dashUnsub = onSnapshot(colRef, snap => {
+    allRecords = [];
+    snap.forEach(d => allRecords.push({id:d.id, ...d.data()}));
+    populateDeptFilter();
+    applyFilters();
+    renderRecordsPage();
+    updateStats();
+  }, err => {
+    console.error('Snapshot error', err);
+    toast('Live sync error: '+err.message, 'err');
+  });
+}
+
+// ══════════════════════════════════════════════
+// STATS
+// ══════════════════════════════════════════════
+function updateStats(){
+  document.getElementById('s-total').textContent = allRecords.length;
+  document.getElementById('s-day').textContent = allRecords.filter(r=>r.shift==='Day').length;
+  document.getElementById('s-night').textContent = allRecords.filter(r=>r.shift==='Night').length;
+  document.getElementById('s-single').textContent = allRecords.filter(r=>r.shift==='Single').length;
+  const last = localStorage.getItem('lastUpload');
+  document.getElementById('s-last').textContent = last ? new Date(last).toLocaleString('hi-IN',{hour12:false}) : '—';
+}
+
+// ══════════════════════════════════════════════
+// FILTERS
+// ══════════════════════════════════════════════
+function populateDeptFilter(){
+  const sel = document.getElementById('f-dept');
+  const current = sel.value;
+  const depts = [...new Set(allRecords.map(r=>r.dept).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All</option>' + depts.map(d=>'<option value="'+d+'">'+d+'</option>').join('');
+  sel.value = current;
+}
+
+function applyFilters(){
+  const date = document.getElementById('f-date').value;
+  const shift = document.getElementById('f-shift').value;
+  const dept = document.getElementById('f-dept').value;
+  const search = document.getElementById('f-search').value.trim().toLowerCase();
+
+  let filtered = [...allRecords];
+  if (date) filtered = filtered.filter(r=>r.date===date);
+  if (shift) filtered = filtered.filter(r=>r.shift===shift);
+  if (dept) filtered = filtered.filter(r=>r.dept===dept);
+  if (search) filtered = filtered.filter(r=>
+    (r.empId||'').toLowerCase().includes(search) || (r.name||'').toLowerCase().includes(search)
+  );
+
+  filtered.sort((a,b)=> new Date(b.firstPunchStr||0) - new Date(a.firstPunchStr||0));
+  renderDashTable(filtered);
+}
+
+function clearFilters(){
+  document.getElementById('f-date').value='';
+  document.getElementById('f-shift').value='';
+  document.getElementById('f-dept').value='';
+  document.getElementById('f-search').value='';
+  applyFilters();
+}
+
+// ══════════════════════════════════════════════
+// RENDER TABLES
+// ══════════════════════════════════════════════
+function shiftPillHTML(shift){
+  const map = {Day:'day ☀', Night:'night 🌙', Single:'single ⚠', Unknown:'unk ?'};
+  const cls = (map[shift]||'unk ?').split(' ')[0];
+  const icon = (map[shift]||'unk ?').split(' ')[1];
+  return '<span class="shift-pill '+cls+'">'+icon+' '+shift+'</span>';
+}
+
+function renderDashTable(rows){
+  const tb = document.getElementById('dash-tbody');
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="big">Koi record nahi mila</div>Filters clear karke try karo, ya CSV upload karo.</div></td></tr>'; return; }
+  tb.innerHTML = rows.map((r,i)=>
+    '<tr>'+
+    '<td class="muted">'+(i+1)+'</td>'+
+    '<td class="id-cell">'+r.empId+'</td>'+
+    '<td>'+(r.name||'—')+'</td>'+
+    '<td><span class="dept-chip">'+(r.dept||'Unknown')+'</span></td>'+
+    '<td class="muted">'+(r.designation||'—')+'</td>'+
+    '<td class="mono">'+r.date+'</td>'+
+    '<td class="mono" style="color:var(--good)">'+fmtTime(new Date(r.firstPunchStr))+'</td>'+
+    '<td class="mono">'+fmtTime(new Date(r.lastPunchStr))+'</td>'+
+    '<td>'+shiftPillHTML(r.shift)+'</td>'+
+    '<td class="muted">'+r.punchCount+'</td>'+
+    '</tr>'
+  ).join('');
+}
+
+function renderRecordsPage(){
+  const tb = document.getElementById('records-tbody');
+  const sorted = [...allRecords].sort((a,b)=> new Date(b.firstPunchStr||0) - new Date(a.firstPunchStr||0));
+  if (!sorted.length) { tb.innerHTML = '<tr><td colspan="9"><div class="empty-state">Koi data nahi hai. Upload Data tab se CSV upload karo.</div></td></tr>'; return; }
+  tb.innerHTML = sorted.map((r,i)=>
+    '<tr>'+
+    '<td class="muted">'+(i+1)+'</td>'+
+    '<td class="id-cell">'+r.empId+'</td>'+
+    '<td>'+(r.name||'—')+'</td>'+
+    '<td><span class="dept-chip">'+(r.dept||'Unknown')+'</span></td>'+
+    '<td class="mono">'+r.date+'</td>'+
+    '<td class="mono" style="color:var(--good)">'+fmtTime(new Date(r.firstPunchStr))+'</td>'+
+    '<td class="mono">'+fmtTime(new Date(r.lastPunchStr))+'</td>'+
+    '<td>'+shiftPillHTML(r.shift)+'</td>'+
+    '<td class="muted">'+r.punchCount+'</td>'+
+    '</tr>'
+  ).join('');
+}
+
+// ══════════════════════════════════════════════
+// EXPORT CSV
+// ══════════════════════════════════════════════
+function exportCSV(all){
+  const data = all ? allRecords : allRecords; // dashboard filtered export uses current filter — simplify to all for now
+  const rows = [['Emp ID','Name','Department','Designation','Date','First Punch','Last Punch','Shift','Punch Count']];
+  data.forEach(r => rows.push([
+    r.empId, r.name||'', r.dept||'', r.designation||'', r.date,
+    fmtTime(new Date(r.firstPunchStr)), fmtTime(new Date(r.lastPunchStr)), r.shift, r.punchCount
+  ]));
+  const csv = rows.map(row => row.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'attendance_export_'+fmtDate(new Date())+'.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════
+// DRAG & DROP
+// ══════════════════════════════════════════════
+['dz-log','dz-tracker'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', e=>{ e.preventDefault(); el.classList.add('drag'); });
+  el.addEventListener('dragleave', ()=> el.classList.remove('drag'));
+  el.addEventListener('drop', e=>{
+    e.preventDefault(); el.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    const inputId = id === 'dz-log' ? 'file-log' : 'file-tracker';
+    const input = document.getElementById(inputId);
+    const dt = new DataTransfer(); dt.items.add(f); input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+  });
+});
+
+// ══════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════
+window.addEventListener('fbready', async () => {
+  await loadTrackerFromFirestore();
+  startLiveDashboard();
+});
+
+// expose functions globally for onclick handlers
+window.showPg = showPg;
+window.processAndUpload = processAndUpload;
+window.loadTrackerOnly = loadTrackerOnly;
+window.clearAllData = clearAllData;
+window.applyFilters = applyFilters;
+window.clearFilters = clearFilters;
+window.exportCSV = exportCSV;
+</script>
+</body>
+</html>
