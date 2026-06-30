@@ -241,10 +241,18 @@ footer{text-align:center; padding:30px; color:var(--paper-dim); font-size:.72rem
           <label>Shift</label>
           <select id="f-shift">
             <option value="">All</option>
-            <option value="Day">Day</option>
-            <option value="Night">Night</option>
-            <option value="Single">Single Punch</option>
-            <option value="Unknown">Unknown</option>
+            <option value="Day">☀ Day</option>
+            <option value="Night">🌙 Night</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>Status</label>
+          <select id="f-status">
+            <option value="">All</option>
+            <option value="Day">✓ Confirmed Day</option>
+            <option value="Night">✓ Confirmed Night</option>
+            <option value="Single">⚠ Single Punch</option>
+            <option value="Unknown">? Unverified</option>
           </select>
         </div>
         <div class="fld">
@@ -264,30 +272,34 @@ footer{text-align:center; padding:30px; color:var(--paper-dim); font-size:.72rem
           <thead>
             <tr>
               <th>#</th><th>Emp ID</th><th>Name</th><th>Department</th><th>Designation</th>
-              <th>Date</th><th>First Punch</th><th>Last Punch</th><th>Shift</th><th>Punches</th>
+              <th>Date</th><th>First Punch</th><th>Last Punch</th><th>Shift</th><th>Status</th><th>Punches</th>
             </tr>
           </thead>
-          <tbody id="dash-tbody"><tr><td colspan="10" class="empty-state">Data load ho rahi hai...</td></tr></tbody>
+          <tbody id="dash-tbody"><tr><td colspan="11" class="empty-state">Data load ho rahi hai...</td></tr></tbody>
         </table>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-h">
-        <div><span class="eyebrow">Reference</span><h2>Shift Classification Logic</h2></div>
+        <div><span class="eyebrow">Reference</span><h2>Shift &amp; Status Logic</h2></div>
       </div>
       <div class="logic-note" style="margin-top:0; padding-top:0; border:none">
         <div class="logic-card day">
-          <div class="tag">☀ Day Shift</div>
-          <p>First punch <b>7:00 AM</b> ke baad, aur last punch <b>same din 12:00 AM</b> (midnight) se pehle ho.</p>
+          <div class="tag">☀ Shift = Day</div>
+          <p><b>First punch hi decide karta hai</b> — agar 7:00 AM se 7:29 PM ke beech hai, turant "Day" label mil jata hai.</p>
         </div>
         <div class="logic-card night">
-          <div class="tag">🌙 Night Shift</div>
-          <p>First punch <b>7:30 PM</b> ke baad, aur last punch <b>agle din 9:00 AM</b> se pehle ho.</p>
+          <div class="tag">🌙 Shift = Night</div>
+          <p><b>First punch hi decide karta hai</b> — agar 7:30 PM se 6:59 AM ke beech hai, turant "Night" label mil jata hai.</p>
+        </div>
+        <div class="logic-card" style="border-color:var(--good)">
+          <div class="tag" style="color:var(--good)">✓ Status = Confirmed</div>
+          <p>Last punch bhi expected window mein aaya — Day: same din midnight se pehle. Night: agle din 9 AM se pehle.</p>
         </div>
         <div class="logic-card" style="border-color:var(--warn)">
-          <div class="tag" style="color:var(--warn)">⚠ Single Punch</div>
-          <p>Sirf ek hi punch mila — first aur last punch same hai, shift confirm nahi ho saki.</p>
+          <div class="tag" style="color:var(--warn)">⚠ Status = Single Punch</div>
+          <p>Sirf ek hi punch mila — first aur last same hai. Shift label first punch se mil gaya, lekin confirm nahi hua.</p>
         </div>
       </div>
     </div>
@@ -346,9 +358,9 @@ footer{text-align:center; padding:30px; color:var(--paper-dim); font-size:.72rem
       <div class="tbl-wrap">
         <table>
           <thead>
-            <tr><th>#</th><th>Emp ID</th><th>Name</th><th>Department</th><th>Date</th><th>First</th><th>Last</th><th>Shift</th><th>Punches</th></tr>
+            <tr><th>#</th><th>Emp ID</th><th>Name</th><th>Department</th><th>Date</th><th>First</th><th>Last</th><th>Shift</th><th>Status</th><th>Punches</th></tr>
           </thead>
-          <tbody id="records-tbody"><tr><td colspan="9" class="empty-state">Loading...</td></tr></tbody>
+          <tbody id="records-tbody"><tr><td colspan="10" class="empty-state">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -505,7 +517,19 @@ function fmtDate(d){
 }
 
 // ══════════════════════════════════════════════
-// SHIFT CLASSIFICATION LOGIC
+// EXPECTED SHIFT — sirf FIRST PUNCH ke time se turant decide hota hai
+// Day window:   7:00 AM – 7:29 PM
+// Night window: 7:30 PM – 6:59 AM (agle din tak)
+// ══════════════════════════════════════════════
+function expectedShift(firstPunch){
+  if (!firstPunch) return 'Unknown';
+  const fH = firstPunch.getHours() + firstPunch.getMinutes()/60;
+  if (fH >= 7.0 && fH < 19.5) return 'Day';
+  return 'Night'; // 7:30 PM se 7:00 AM tak (raat ke punches)
+}
+
+// ══════════════════════════════════════════════
+// FINAL STATUS — first + last dono punch verify karke confirm hota hai
 // Day:   first punch >= 7:00 AM   AND last punch < midnight (same day)
 // Night: first punch >= 7:30 PM  AND last punch < 9:00 AM (next day)
 // ══════════════════════════════════════════════
@@ -566,6 +590,7 @@ function computeAttendance(rows, headers){
     const punches = data.punches.sort((a,b)=>a-b);
     const first = punches[0];
     const last = punches[punches.length-1];
+    const expShift = expectedShift(first);
     const shift = classifyShift(first, last);
     const trackerInfo = trackerMap[empId] || {};
 
@@ -579,6 +604,7 @@ function computeAttendance(rows, headers){
       lastPunch: last,
       firstPunchStr: first.toISOString(),
       lastPunchStr: last.toISOString(),
+      expectedShift: expShift,
       shift,
       punchCount: punches.length,
       updatedAt: new Date().toISOString()
@@ -651,10 +677,10 @@ async function processAndUpload(){
     log('✓ ' + computed.length + ' unique employees processed');
     bar.style.width = '60%';
 
-    const dayCount = computed.filter(r=>r.shift==='Day').length;
-    const nightCount = computed.filter(r=>r.shift==='Night').length;
+    const dayCount = computed.filter(r=>r.expectedShift==='Day').length;
+    const nightCount = computed.filter(r=>r.expectedShift==='Night').length;
     const singleCount = computed.filter(r=>r.shift==='Single').length;
-    log('  ☀ Day: '+dayCount+' | 🌙 Night: '+nightCount+' | ⚠ Single: '+singleCount);
+    log('  ☀ Day: '+dayCount+' | 🌙 Night: '+nightCount+' | ⚠ Single Punch: '+singleCount);
 
     // Step 4: Upload to Firestore (batched)
     log('☁ Firestore mein save ho raha hai...');
@@ -777,8 +803,8 @@ function startLiveDashboard(){
 // ══════════════════════════════════════════════
 function updateStats(){
   document.getElementById('s-total').textContent = allRecords.length;
-  document.getElementById('s-day').textContent = allRecords.filter(r=>r.shift==='Day').length;
-  document.getElementById('s-night').textContent = allRecords.filter(r=>r.shift==='Night').length;
+  document.getElementById('s-day').textContent = allRecords.filter(r=>r.expectedShift==='Day').length;
+  document.getElementById('s-night').textContent = allRecords.filter(r=>r.expectedShift==='Night').length;
   document.getElementById('s-single').textContent = allRecords.filter(r=>r.shift==='Single').length;
   const last = localStorage.getItem('lastUpload');
   document.getElementById('s-last').textContent = last ? new Date(last).toLocaleString('hi-IN',{hour12:false}) : '—';
@@ -798,12 +824,14 @@ function populateDeptFilter(){
 function applyFilters(){
   const date = document.getElementById('f-date').value;
   const shift = document.getElementById('f-shift').value;
+  const status = document.getElementById('f-status').value;
   const dept = document.getElementById('f-dept').value;
   const search = document.getElementById('f-search').value.trim().toLowerCase();
 
   let filtered = [...allRecords];
   if (date) filtered = filtered.filter(r=>r.date===date);
-  if (shift) filtered = filtered.filter(r=>r.shift===shift);
+  if (shift) filtered = filtered.filter(r=>r.expectedShift===shift);
+  if (status) filtered = filtered.filter(r=>r.shift===status);
   if (dept) filtered = filtered.filter(r=>r.dept===dept);
   if (search) filtered = filtered.filter(r=>
     (r.empId||'').toLowerCase().includes(search) || (r.name||'').toLowerCase().includes(search)
@@ -816,6 +844,7 @@ function applyFilters(){
 function clearFilters(){
   document.getElementById('f-date').value='';
   document.getElementById('f-shift').value='';
+  document.getElementById('f-status').value='';
   document.getElementById('f-dept').value='';
   document.getElementById('f-search').value='';
   applyFilters();
@@ -825,15 +854,22 @@ function clearFilters(){
 // RENDER TABLES
 // ══════════════════════════════════════════════
 function shiftPillHTML(shift){
-  const map = {Day:'day ☀', Night:'night 🌙', Single:'single ⚠', Unknown:'unk ?'};
+  const map = {Day:'day ☀', Night:'night 🌙', Unknown:'unk ?'};
   const cls = (map[shift]||'unk ?').split(' ')[0];
   const icon = (map[shift]||'unk ?').split(' ')[1];
   return '<span class="shift-pill '+cls+'">'+icon+' '+shift+'</span>';
 }
 
+function statusPillHTML(shift, expShift){
+  // Confirmed = final classification matches the expected shift
+  if (shift === expShift) return '<span class="shift-pill '+(shift==='Day'?'day':'night')+'" style="opacity:.85">✓ Confirmed</span>';
+  if (shift === 'Single') return '<span class="shift-pill single">⚠ Single Punch</span>';
+  return '<span class="shift-pill unk">? Unverified</span>';
+}
+
 function renderDashTable(rows){
   const tb = document.getElementById('dash-tbody');
-  if (!rows.length) { tb.innerHTML = '<tr><td colspan="10"><div class="empty-state"><div class="big">Koi record nahi mila</div>Filters clear karke try karo, ya CSV upload karo.</div></td></tr>'; return; }
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="11"><div class="empty-state"><div class="big">Koi record nahi mila</div>Filters clear karke try karo, ya CSV upload karo.</div></td></tr>'; return; }
   tb.innerHTML = rows.map((r,i)=>
     '<tr>'+
     '<td class="muted">'+(i+1)+'</td>'+
@@ -844,7 +880,8 @@ function renderDashTable(rows){
     '<td class="mono">'+r.date+'</td>'+
     '<td class="mono" style="color:var(--good)">'+fmtTime(new Date(r.firstPunchStr))+'</td>'+
     '<td class="mono">'+fmtTime(new Date(r.lastPunchStr))+'</td>'+
-    '<td>'+shiftPillHTML(r.shift)+'</td>'+
+    '<td>'+shiftPillHTML(r.expectedShift)+'</td>'+
+    '<td>'+statusPillHTML(r.shift, r.expectedShift)+'</td>'+
     '<td class="muted">'+r.punchCount+'</td>'+
     '</tr>'
   ).join('');
@@ -853,7 +890,7 @@ function renderDashTable(rows){
 function renderRecordsPage(){
   const tb = document.getElementById('records-tbody');
   const sorted = [...allRecords].sort((a,b)=> new Date(b.firstPunchStr||0) - new Date(a.firstPunchStr||0));
-  if (!sorted.length) { tb.innerHTML = '<tr><td colspan="9"><div class="empty-state">Koi data nahi hai. Upload Data tab se CSV upload karo.</div></td></tr>'; return; }
+  if (!sorted.length) { tb.innerHTML = '<tr><td colspan="10"><div class="empty-state">Koi data nahi hai. Upload Data tab se CSV upload karo.</div></td></tr>'; return; }
   tb.innerHTML = sorted.map((r,i)=>
     '<tr>'+
     '<td class="muted">'+(i+1)+'</td>'+
@@ -863,7 +900,8 @@ function renderRecordsPage(){
     '<td class="mono">'+r.date+'</td>'+
     '<td class="mono" style="color:var(--good)">'+fmtTime(new Date(r.firstPunchStr))+'</td>'+
     '<td class="mono">'+fmtTime(new Date(r.lastPunchStr))+'</td>'+
-    '<td>'+shiftPillHTML(r.shift)+'</td>'+
+    '<td>'+shiftPillHTML(r.expectedShift)+'</td>'+
+    '<td>'+statusPillHTML(r.shift, r.expectedShift)+'</td>'+
     '<td class="muted">'+r.punchCount+'</td>'+
     '</tr>'
   ).join('');
@@ -873,11 +911,11 @@ function renderRecordsPage(){
 // EXPORT CSV
 // ══════════════════════════════════════════════
 function exportCSV(all){
-  const data = all ? allRecords : allRecords; // dashboard filtered export uses current filter — simplify to all for now
-  const rows = [['Emp ID','Name','Department','Designation','Date','First Punch','Last Punch','Shift','Punch Count']];
+  const data = all ? allRecords : allRecords;
+  const rows = [['Emp ID','Name','Department','Designation','Date','First Punch','Last Punch','Shift','Status','Punch Count']];
   data.forEach(r => rows.push([
     r.empId, r.name||'', r.dept||'', r.designation||'', r.date,
-    fmtTime(new Date(r.firstPunchStr)), fmtTime(new Date(r.lastPunchStr)), r.shift, r.punchCount
+    fmtTime(new Date(r.firstPunchStr)), fmtTime(new Date(r.lastPunchStr)), r.expectedShift, r.shift, r.punchCount
   ]));
   const csv = rows.map(row => row.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'});
